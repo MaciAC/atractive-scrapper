@@ -1,23 +1,78 @@
 from tenacity import retry, wait_fixed, stop_after_attempt
 import time
+import os
+import platform
+import logging
+
 from selenium import webdriver
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 from bs4 import BeautifulSoup
-import logging
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
+
+
+def create_chrome_driver():
+    """Create Chrome/Chromium WebDriver with ARM64 compatibility"""
+    
+    chrome_options = Options()
+    chrome_options.add_argument('--headless')
+    chrome_options.add_argument('--no-sandbox')
+    chrome_options.add_argument('--disable-dev-shm-usage')
+    chrome_options.add_argument('--disable-gpu')
+    chrome_options.add_argument('--remote-debugging-port=9222')
+    chrome_options.add_argument('--disable-extensions')
+    chrome_options.add_argument('--disable-web-security')
+    chrome_options.add_argument('--allow-running-insecure-content')
+    
+    # Handle different architectures and environments
+    system_arch = platform.machine().lower()
+    
+    if system_arch in ['aarch64', 'arm64']:
+        # ARM64 architecture - use Chromium
+        chrome_options.binary_location = '/usr/bin/chromium'
+        
+        # Try different ChromeDriver locations
+        driver_paths = [
+            '/usr/bin/chromedriver',
+            '/usr/local/bin/chromedriver',
+            '/usr/lib/chromium-browser/chromedriver'
+        ]
+        
+        chromedriver_path = None
+        for path in driver_paths:
+            if os.path.exists(path):
+                chromedriver_path = path
+                break
+        
+        if not chromedriver_path:
+            raise Exception("ChromeDriver not found for ARM64 architecture")
+        
+        service = Service(executable_path=chromedriver_path)
+        driver = webdriver.Chrome(service=service, options=chrome_options)
+        
+    else:
+        # AMD64 architecture - can use standard approach
+        try:
+            # Try automatic driver management first
+            driver = webdriver.Chrome(options=chrome_options)
+        except Exception as e:
+            # Fallback to manual path specification
+            service = Service(executable_path='/usr/local/bin/chromedriver')
+            driver = webdriver.Chrome(service=service, options=chrome_options)
+    
+    return driver
+
 @retry(wait=wait_fixed(3), stop=stop_after_attempt(3), reraise=True)
 def login_instagram_and_navigate_to_profile(profile: str):
     logger.info(f"Logging into Instagram...")
-    chrome_options = Options()
-    chrome_options.add_argument("--headless=new")
 
-    driver = webdriver.Chrome(options=chrome_options)
-    
+    driver = create_chrome_driver()
+
     driver.get("https://www.instagram.com/")
     
     # click on allow cookies button
